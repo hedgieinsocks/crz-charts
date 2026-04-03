@@ -25,7 +25,12 @@ func Test() error {
 
 // Run linter
 func Lint() error {
-	cmd := exec.Command("docker", "run", "--rm", "--workdir=/data", "--volume=.:/data", "quay.io/helmpack/chart-testing:v3.7.1", "ct", "lint")
+	var cmd *exec.Cmd
+	if isPodman() {
+		cmd = exec.Command("podman", "run", "--rm", "--workdir=/data", "--volume=.:/data:Z", "quay.io/helmpack/chart-testing:v3.7.1", "ct", "lint")
+	} else {
+		cmd = exec.Command("docker", "run", "--rm", "--workdir=/data", "--volume=.:/data", "quay.io/helmpack/chart-testing:v3.7.1", "ct", "lint")
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
