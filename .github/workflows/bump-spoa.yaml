@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  check-coraza:
+  bump-coraza:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -14,7 +14,7 @@ jobs:
     env:
       IMAGE_NAME: coraza-spoa
     steps:
-      - name: Get remote image version
+      - name: Get latest image version
         id: remote
         run: |
           image_version=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -24,14 +24,12 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
 
       - name: Get local chart and image versions
         id: local
         run: |
-          chart_version=$(awk '/^version/ {print $2}' charts/coraza-spoa/Chart.yaml)
-          image_version=$(awk '/^appVersion/ {print $2}' charts/coraza-spoa/Chart.yaml)
+          chart_version=$(awk '/^version/ {print $2}' charts/${IMAGE_NAME}/Chart.yaml)
+          image_version=$(awk '/^appVersion/ {print $2}' charts/${IMAGE_NAME}/Chart.yaml)
           echo "chart_version=${chart_version}" >> ${GITHUB_OUTPUT}
           echo "image_version=${image_version//\"/}" >> ${GITHUB_OUTPUT}
 
@@ -49,24 +47,24 @@ jobs:
       - name: Update local image and chart versions
         if: steps.compare.outputs.needs_update == "true"
         run: |
-          old_chart_version=${{ steps.local.outputs.chart_version }}
-          IFS="." read -r major minor patch <<< "${old_chart_version}"
+          old_chart_version="${{ steps.local.outputs.chart_version }}"
+          IFS='.' read -r major minor patch <<< "${old_chart_version}"
           new_chart_version=${major}.${minor}.$((patch + 1))
-          sed -i "s/^version:.*/version: ${new_chart_version}/" charts/coraza-spoa/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.remote.outputs.image_version }}\"/" charts/coraza-spoa/Chart.yaml
+          sed -i "s/^version:.*/version: ${new_chart_version}/" charts/${IMAGE_NAME}/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.remote.outputs.image_version }}\"/" charts/${IMAGE_NAME}/Chart.yaml
 
       - name: Run helm-docs
         if: steps.compare.outputs.needs_update == "true"
         uses: losisin/helm-docs-github-action@2ccf3e77eb70dc80d62f8cc26f15d0a96b75fef4 # v1.8.0
         with:
-          chart-search-root: charts/coraza-spoa
+          chart-search-root: charts/${{ env.IMAGE_NAME }}
 
       - name: Create Pull Request
         if: steps.compare.outputs.needs_update == "true"
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          commit-message: "chore(coraza-spoa): bump image to v${{ steps.remote.outputs.image_version }}"
-          branch: coraza-spoa-${{ steps.remote.outputs.image_version }}
-          title: "chore(coraza-spoa): bump image to v${{ steps.remote.outputs.image_version }}"
+          commit-message: "chore(${{ env.IMAGE_NAME }}): bump image to v${{ steps.remote.outputs.image_version }}"
+          branch: ${{ env.IMAGE_NAME }}_${{ steps.remote.outputs.image_version }}
+          title: "chore(${{ env.IMAGE_NAME }}): bump image to v${{ steps.remote.outputs.image_version }}"
           body: |
-            Automated chart version bump following the new coraza-spoa image release `v${{ steps.remote.outputs.image_version }}`.
+            Automated chart version bump following the new ${IMAGE_NAME} image release `v${{ steps.remote.outputs.image_version }}`.
