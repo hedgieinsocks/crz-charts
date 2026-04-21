@@ -45,7 +45,7 @@ jobs:
           fi
 
       - name: Update local image and chart versions
-        if: steps.compare.outputs.needs_update == "true"
+        if: steps.compare.outputs.needs_update == 'true'
         run: |
           old_chart_version="${{ steps.local.outputs.chart_version }}"
           IFS='.' read -r major minor patch <<< "${old_chart_version}"
@@ -54,17 +54,17 @@ jobs:
           sed -i "s/^appVersion:.*/appVersion: \"${{ steps.remote.outputs.image_version }}\"/" charts/${IMAGE_NAME}/Chart.yaml
 
       - name: Run helm-docs
-        if: steps.compare.outputs.needs_update == "true"
+        if: steps.compare.outputs.needs_update == 'true'
         uses: losisin/helm-docs-github-action@2ccf3e77eb70dc80d62f8cc26f15d0a96b75fef4 # v1.8.0
         with:
           chart-search-root: charts/${{ env.IMAGE_NAME }}
 
       - name: Create Pull Request
-        if: steps.compare.outputs.needs_update == "true"
+        if: steps.compare.outputs.needs_update == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           commit-message: "chore(${{ env.IMAGE_NAME }}): bump image to v${{ steps.remote.outputs.image_version }}"
           branch: ${{ env.IMAGE_NAME }}_${{ steps.remote.outputs.image_version }}
           title: "chore(${{ env.IMAGE_NAME }}): bump image to v${{ steps.remote.outputs.image_version }}"
           body: |
-            Automated chart version bump following the new ${IMAGE_NAME} image release `v${{ steps.remote.outputs.image_version }}`.
+            Automated chart version bump following the new ${{ env.IMAGE_NAME }} image release `v${{ steps.remote.outputs.image_version }}`.
