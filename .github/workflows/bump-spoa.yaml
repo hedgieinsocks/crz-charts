@@ -1,0 +1,78 @@
+name: Bump Coraza SPOA Image
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  bump-coraza:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: read
+    env:
+      IMAGE_NAME: coraza-spoa
+    steps:
+      - name: Get latest image version
+        id: remote
+        run: |
+          set -euo pipefail
+          response=$(curl -fsS \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/orgs/corazawaf/packages/container/${IMAGE_NAME}/versions?per_page=1")
+          image_version=$(echo "${response}" \
+            | jq -r '.[0].metadata.container.tags[0]
+                // error("Could not retrieve the latest image tag")
+                | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
+                // error("The latest image tag is not expected X.X.X semver")')
+          echo "image_version=${image_version}" >> ${GITHUB_OUTPUT}
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Get local chart and image versions
+        id: local
+        run: |
+          chart_version=$(awk '/^version/ {print $2}' charts/${IMAGE_NAME}/Chart.yaml)
+          image_version=$(awk '/^appVersion/ {print $2}' charts/${IMAGE_NAME}/Chart.yaml)
+          echo "chart_version=${chart_version}" >> ${GITHUB_OUTPUT}
+          echo "image_version=${image_version//\"/}" >> ${GITHUB_OUTPUT}
+
+      - name: Compare remote and local image versions
+        id: compare
+        run: |
+          remote_image_version="${{ steps.remote.outputs.image_version }}"
+          local_image_version="${{ steps.local.outputs.image_version }}"
+          if [[ "${remote_image_version}" == "${local_image_version}" ]]; then
+            echo "needs_update=false" >> ${GITHUB_OUTPUT}
+          else
+            echo "needs_update=true" >> ${GITHUB_OUTPUT}
+          fi
+
+      - name: Update local image and chart versions
+        if: steps.compare.outputs.needs_update == 'true'
+        run: |
+          old_chart_version="${{ steps.local.outputs.chart_version }}"
+          IFS='.' read -r major minor patch <<< "${old_chart_version}"
+          new_chart_version=${major}.${minor}.$((patch + 1))
+          sed -i "s/^version:.*/version: ${new_chart_version}/" charts/${IMAGE_NAME}/Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.remote.outputs.image_version }}\"/" charts/${IMAGE_NAME}/Chart.yaml
+
+      - name: Run helm-docs
+        if: steps.compare.outputs.needs_update == 'true'
+        uses: losisin/helm-docs-github-action@2ccf3e77eb70dc80d62f8cc26f15d0a96b75fef4 # v1.8.0
+        with:
+          chart-search-root: charts/${{ env.IMAGE_NAME }}
+
+      - name: Create Pull Request
+        if: steps.compare.outputs.needs_update == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          commit-message: "chore(${{ env.IMAGE_NAME }}): bump image to v${{ steps.remote.outputs.image_version }}"
+          branch: ${{ env.IMAGE_NAME }}_${{ steps.remote.outputs.image_version }}
+          title: "chore(${{ env.IMAGE_NAME }}): bump image to v${{ steps.remote.outputs.image_version }}"
+          body: |
+            Automated chart version bump following the new ${{ env.IMAGE_NAME }} image release `v${{ steps.remote.outputs.image_version }}`
